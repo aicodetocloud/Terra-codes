@@ -1,0 +1,56 @@
+name: Deploy Simple AWS Lambda
+
+on:
+  push:
+    branches: [ "main" ]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  aws-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 🔑 Authenticate to AWS via OIDC
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::<ACCOUNT_ID>:role/<GITHUB_OIDC_ROLE>
+          aws-region: ap-south-1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        run: terraform init
+        working-directory: infra/aws
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve
+        working-directory: infra/aws
+
+      # 📦 Package Lambda Code
+      - name: Zip Lambda
+        run: |
+          cd src/lambda_function
+          zip -r ../../infra/aws/lambda.zip index.py
+
+      # 🚀 Deploy Lambda Code
+      - name: Update Lambda Function
+        run: |
+          aws lambda update-function-code \
+            --function-name simple-lambda \
+            --zip-file fileb://infra/aws/lambda.zip
+
+      # ▶️ Invoke Lambda to test
+      - name: Invoke Lambda
+        run: |
+          aws lambda invoke \
+            --function-name simple-lambda \
+            --payload '{}' \
+            response.json
+          cat response.json
